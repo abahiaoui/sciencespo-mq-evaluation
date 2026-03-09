@@ -5,19 +5,20 @@ st.set_page_config(
     page_icon="🏫"
 )
 
-st.title("🏫 Méthodes Quantitatives")
-st.subheader("Plateforme d'entraînement interactive")
+st.title("🏫 Evaluation - Méthodes Quantitatives")
+st.subheader("Plateforme d'évaluation du cours")
 
 st.markdown("""
-Bienvenue sur l'outil d'accompagnement du cours de **Méthodes Quantitatives**. 
-Cette application vous permet de réviser les notions théoriques et de perfectionner votre maîtrise d'Excel.
+Bienvenue sur la plateforme d'évaluation du cours de **Méthodes Quantitatives**. 
+Cette application vous permet de passer vos examens et quiz interactifs.
 
-### 🚀 Comment réviser ?
-1. **Choisissez une séance et exercice** dans le menu latéral à gauche.
-2. **Sélectionnez un mode :**
-    * **Mode Papier & Calculatrice :** Pour vous préparer au format de l'examen (petits jeux de données).
-    * **Mode Excel :** Pour pratiquer sur des bases de données réelles (fichiers .xlsx).
-3. **Recevez un feedback immédiat :** L'outil corrige vos calculs et vos formules.
+### 🚀 Consignes générales
+1. **Accédez aux quiz** depuis le menu latéral à gauche.
+2. **Remplissez le formulaire de l'examen.** Assurez-vous que toutes vos réponses sont complètes avant de soumettre.
+3. **Résultats et Soumission :** 
+    * Une fois soumis, vos réponses seront enregistrées de manière sécurisée.
+    * Vous pourrez télécharger ou enregistrer une copie de vos réponses avec la correction.
+    * **Attention :** Une fois le formulaire soumis, vous ne pourrez plus modifier vos réponses.
 """)
 
 st.divider()

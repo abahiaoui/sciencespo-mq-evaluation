@@ -4,3 +4,4 @@ venv/
 
 # Local secrets file 
 .streamlit/secrets.toml
+client_secret.json
