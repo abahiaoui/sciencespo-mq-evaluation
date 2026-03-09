@@ -1,0 +1,6 @@
+# Python virtual environment
+.venv/
+venv/
+
+# Local secrets file 
+.streamlit/secrets.toml
