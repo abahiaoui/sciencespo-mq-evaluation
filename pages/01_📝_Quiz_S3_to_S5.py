@@ -1,8 +1,6 @@
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
 from datetime import datetime
 import pandas as pd
 import numpy as np
@@ -16,78 +14,17 @@ st.markdown("""
 Veuillez répondre à toutes les questions avant de soumettre. Une fois soumis, vos réponses seront enregistrées définitivement.
 """)
 
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import Flow
-from google.auth.transport.requests import Request
-import os
-import json
-
-# Define the scopes required
-SCOPES = [
+# 1. Setup connection securely
+scopes = [
     "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
 ]
 
-# We need to load client secrets for OAuth2 from Streamlit secrets or a file
-# For local ease, we'll assume the user has placed 'client_secret.json' in the repo root,
-# or we can read it from st.secrets if configured.
-CLIENT_SECRETS_FILE = "client_secret.json"
-
-st.sidebar.header("🔐 Authentification Professeur")
-credentials = None
-
-if os.path.exists("token.json"):
-    try:
-        with open("token.json", "r") as token_file:
-            token_data = json.load(token_file)
-            credentials = Credentials.from_authorized_user_info(token_data, SCOPES)
-    except Exception as e:
-        st.sidebar.error(f"Erreur de lecture du token : {e}")
-
-if not credentials or not credentials.valid:
-    if credentials and credentials.expired and credentials.refresh_token:
-        try:
-            credentials.refresh(Request())
-            # Save the refreshed credentials
-            with open("token.json", "w") as token_file:
-                token_file.write(credentials.to_json())
-        except Exception as e:
-            st.sidebar.warning("Le token a expiré et n'a pas pu être rafraîchi. Veuillez vous reconnecter.")
-            credentials = None
-    
-    if not credentials:
-        st.sidebar.warning("L'application doit être autorisée avec votre compte Google personnel pour uploader les fichiers sur votre Drive.")
-        if not os.path.exists(CLIENT_SECRETS_FILE):
-             st.sidebar.error(f"⚠️ Fichier `{CLIENT_SECRETS_FILE}` introuvable ! Vous devez télécharger vos identifiants OAuth depuis Google Cloud Console et les placer à la racine du projet.")
-        else:
-             flow = Flow.from_client_secrets_file(
-                 CLIENT_SECRETS_FILE,
-                 scopes=SCOPES,
-                 redirect_uri='urn:ietf:wg:oauth:2.0:oob' # Desktop flow out-of-band
-             )
-             
-             auth_url, _ = flow.authorization_url(prompt='consent')
-             st.sidebar.markdown(f"[Cliquez ici pour autoriser l'application]({auth_url})")
-             
-             auth_code = st.sidebar.text_input("Collez le code d'autorisation ici :")
-             if st.sidebar.button("Valider le code"):
-                 try:
-                     flow.fetch_token(code=auth_code)
-                     credentials = flow.credentials
-                     # Save the credentials for the next run
-                     with open("token.json", "w") as token_file:
-                         token_file.write(credentials.to_json())
-                     st.sidebar.success("✅ Authentification réussie ! L'application est prête.")
-                     st.rerun()
-                 except Exception as e:
-                     st.sidebar.error(f"Échec de l'authentification : {e}")
-
-if not credentials or not credentials.valid:
-    st.info("⚠️ En attente de l'authentification du professeur. Les étudiants ne peuvent pas encore soumettre.")
-    st.stop()
-
-# If we get here, credentials are valid!
 try:
+    s_info = st.secrets["connections"]["gsheets"]
+    credentials = Credentials.from_service_account_info(
+        s_info,
+        scopes=scopes,
+    )
     client = gspread.authorize(credentials)
 except Exception as e:
     st.error(f"Erreur de connexion à Google Sheets: {e}")
@@ -101,6 +38,71 @@ def calculate_variance(data, is_sample=False):
     sq_diff = sum((x - mean) ** 2 for x in data)
     return sq_diff / (n - 1 if is_sample else n)
 
+def get_client_ip():
+    try:
+        # Streamlit >= 1.35
+        header_val = st.context.headers.get("X-Forwarded-For")
+        if header_val:
+            return header_val.split(",")[0].strip()
+        return "Local/Unknown"
+    except Exception:
+        try:
+            # Fallback for older Streamlit versions
+            from streamlit.web.server.websocket_headers import _get_websocket_headers
+            headers = _get_websocket_headers()
+            if "X-Forwarded-For" in headers:
+                return headers["X-Forwarded-For"].split(",")[0].strip()
+            return "Local/Unknown"
+        except Exception:
+            return "Unknown"
+
+import hashlib
+def string_to_seed(s):
+    return int(hashlib.md5(s.encode('utf-8')).hexdigest(), 16) % (10**8)
+
+# Step 1: Identification to lock the seed
+if 'identified' not in st.session_state:
+    st.header("Étape 1 : Identification")
+    st.info("Veuillez saisir votre adresse email Sciences Po pour générer votre sujet d'examen unique.")
+    email_input = st.text_input("Adresse e-mail (Sciences Po)")
+    if st.button("Commencer l'examen"):
+        if email_input and "@" in email_input:
+            st.session_state['identified'] = True
+            st.session_state['email_student'] = email_input.strip()
+            st.rerun()
+        else:
+            st.error("Veuillez entrer une adresse e-mail valide.")
+    st.stop() # Halt rendering until identified
+
+# Once identified, seed numpy and generate dataset
+email = st.session_state['email_student']
+seed = string_to_seed(email)
+np.random.seed(seed)
+
+# Generate Random Variables for Q4 & Q5 (Dataset)
+base_values = np.random.randint(10, 30, size=6)
+dataset_q4 = sorted([int(x) for x in base_values]) # List of 6 integers
+
+# Calculate correct answers for Q4 & Q5 based on randomized dataset
+# Median
+def calc_median(data):
+    n = len(data)
+    if n % 2 == 0:
+        return (data[n//2 - 1] + data[n//2]) / 2.0
+    return float(data[n//2])
+
+correct_q4_med = calc_median(dataset_q4)
+correct_q4_mean = sum(dataset_q4) / len(dataset_q4)
+correct_q5_var = calculate_variance(dataset_q4, is_sample=False)
+
+# Generate Random Variables for Q6 (Categories B and A)
+# Let's generate a 5-row table
+salaries_A = [int(x) for x in np.random.randint(1500, 2500, size=2)]
+salaries_B = [int(x) for x in np.random.randint(2800, 4500, size=3)]
+
+# Calculate correct answer for Q6
+correct_q6_mean_catB = sum(salaries_B) / len(salaries_B)
+
 with st.form("quiz_form"):
     st.header("Informations de l'étudiant")
     col1, col2 = st.columns(2)
@@ -108,7 +110,7 @@ with st.form("quiz_form"):
         prenom = st.text_input("Prénom", key="prenom")
     with col2:
         nom = st.text_input("Nom", key="nom")
-    email = st.text_input("Adresse e-mail (Sciences Po)", key="email")
+    st.text_input("Adresse e-mail", value=email, disabled=True)
     
     st.divider()
     
@@ -141,7 +143,7 @@ with st.form("quiz_form"):
     # --- PART 2 ---
     st.header("Partie 2 : Statistiques Descriptives Univariées (S3) - 10 mins")
     
-    st.markdown("Considérez la série de données suivante représentant le temps (en minutes) passé par 6 étudiants à résoudre un problème : `[12, 15, 15, 18, 22, 26]`")
+    st.markdown(f"Considérez la série de données suivante représentant le temps (en minutes) passé par 6 étudiants à résoudre un problème : `{dataset_q4}`")
     
     st.subheader("Question 4")
     col_q4_1, col_q4_2 = st.columns(2)
@@ -158,15 +160,15 @@ with st.form("quiz_form"):
     # --- PART 3 ---
     st.header("Partie 3 : Analyse Bivariée (S4) - 10 mins")
     
-    st.markdown("""
+    st.markdown(f"""
     Vous disposez du tableau suivant présentant des salaires selon la catégorie :
     | Catégorie | Salaire (€) |
     | :--- | :--- |
-    | A | 2000 |
-    | A | 2200 |
-    | B | 3000 |
-    | B | 3500 |
-    | B | 4000 |
+    | A | {salaries_A[0]} |
+    | A | {salaries_A[1]} |
+    | B | {salaries_B[0]} |
+    | B | {salaries_B[1]} |
+    | B | {salaries_B[2]} |
     """)
     
     st.subheader("Question 6")
@@ -242,25 +244,18 @@ with st.form("quiz_form"):
                     # Q2 (1.5 pts)
                     if q2 == "Échantillonnage systématique": score += 1.5
                     
-                    # Q3 (1.5 pts) -> La variance échantillon Sn-1 divise par n-1, donc elle est mathématiquement PLUS GRANDE que la variance population Sn (qui divise par n). Donc l'énoncé est Faux.
+                    # Q3 (1.5 pts)
                     if q3 == "Faux": score += 1.5
                     
                     # Q4 (1 pt chaque)
-                    # Median of 12, 15, 15, 18, 22, 26 is (15+18)/2 = 16.5
-                    if abs(q4_median - 16.5) < 0.01: score += 1
-                    # Mean is (12+15+15+18+22+26)/6 = 108/6 = 18.0
-                    if abs(q4_mean - 18.0) < 0.01: score += 1
+                    if abs(q4_median - correct_q4_med) < 0.01: score += 1
+                    if abs(q4_mean - correct_q4_mean) < 0.01: score += 1
                     
                     # Q5 (1 pt)
-                    # pop variance of [12, 15, 15, 18, 22, 26]. Mean=18. 
-                    # ssq = (12-18)^2 + 2*(15-18)^2 + (18-18)^2 + (22-18)^2 + (26-18)^2
-                    # ssq = 36 + 2*9 + 0 + 16 + 64 = 134
-                    # var = 134 / 6 = 22.3333...
-                    if abs(q5_variance - 22.33) < 0.1: score += 1
+                    if abs(q5_variance - correct_q5_var) < 0.1: score += 1
                     
                     # Q6 (1 pt)
-                    # Mean B = (3000+3500+4000)/3 = 3500
-                    if abs(q6_mean_catB - 3500.0) < 0.01: score += 1
+                    if abs(q6_mean_catB - correct_q6_mean_catB) < 0.01: score += 1
                     
                     # Q7 (1 pt)
                     if q7 == "Plus un étudiant révise, plus sa note tend à diminuer.": score += 1
@@ -279,15 +274,11 @@ with st.form("quiz_form"):
                     
                     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     
-                    # row format: Timestamp, Prenom, Nom, Email, Q1a, Q1b, Q1c, Q2, Q3, Q4_med, Q4_mean, Q5, Q6, Q7, Q8, Q9, Score
-                    row_data = [
-                        timestamp, prenom, nom, email,
-                        q1_a, q1_b, q1_c, q2, q3,
-                        float(q4_median), float(q4_mean), float(q5_variance), float(q6_mean_catB),
-                        q7, q8, q9, f"{score}/{max_score}"
-                    ]
+                    # Format randomized data as strings
+                    dataset_q4_str = str(dataset_q4)
+                    salaries_B_str = str(salaries_B)
                     
-                    worksheet.append_row(row_data)
+                    ip_address = get_client_ip()
                     
                     # Generate HTML response summary for Download
                     html_content = f"""
@@ -317,12 +308,14 @@ with st.form("quiz_form"):
                         <p><strong>Variance échantillon vs population :</strong> Vous avez répondu <span class="student-ans">{q3}</span>. Correction : <span class="correct">Faux</span> (Sn-1 divise par n-1, donc le résultat est plus grand que Sn qui divise par n)</p>
 
                         <h3>Partie 2</h3>
-                        <p><strong>Médiane de [12, 15, 15, 18, 22, 26] :</strong> Vous avez répondu <span class="student-ans">{q4_median}</span>. Correction : <span class="correct">16.5</span> (Moyenne des deux valeurs centrales 15 et 18)</p>
-                        <p><strong>Moyenne de [12, 15, 15, 18, 22, 26] :</strong> Vous avez répondu <span class="student-ans">{q4_mean}</span>. Correction : <span class="correct">18.0</span></p>
-                        <p><strong>Variance de la population :</strong> Vous avez répondu <span class="student-ans">{q5_variance}</span>. Correction : <span class="correct">~22.33</span> (134 / 6)</p>
+                        <p>Dataset de l'étudiant : {dataset_q4_str}</p>
+                        <p><strong>Médiane :</strong> Vous avez répondu <span class="student-ans">{q4_median}</span>. Correction : <span class="correct">{correct_q4_med}</span></p>
+                        <p><strong>Moyenne :</strong> Vous avez répondu <span class="student-ans">{q4_mean}</span>. Correction : <span class="correct">{correct_q4_mean}</span></p>
+                        <p><strong>Variance de la population :</strong> Vous avez répondu <span class="student-ans">{q5_variance}</span>. Correction : <span class="correct">~{correct_q5_var:.2f}</span></p>
 
                         <h3>Partie 3</h3>
-                        <p><strong>Moyenne Catégorie B :</strong> Vous avez répondu <span class="student-ans">{q6_mean_catB}</span>. Correction : <span class="correct">3500.0</span></p>
+                        <p>Salaires Catégorie A : {str(salaries_A)} | Salaires Catégorie B : {salaries_B_str}</p>
+                        <p><strong>Moyenne Catégorie B :</strong> Vous avez répondu <span class="student-ans">{q6_mean_catB}</span>. Correction : <span class="correct">{correct_q6_mean_catB:2f}</span></p>
                         <p><strong>Covariance Négative :</strong> Vous avez répondu <span class="student-ans">{q7}</span>. Correction : <span class="correct">Plus un étudiant révise, plus sa note tend à diminuer.</span></p>
                         <p><strong>Formule manuelle Covariance :</strong> Vous avez répondu <span class="student-ans">{q8}</span>. Correction : <span class="correct">La moyenne des produits croisés...</span></p>
                         <p><strong>Formule Excel Covariance (Population) :</strong> Vous avez répondu <span class="student-ans">{q9}</span>. Correction : <span class="correct">=COVAR.P() (ou =COVARIANCE.PE())</span></p>
@@ -331,53 +324,23 @@ with st.form("quiz_form"):
                     </html>
                     """
                     
-                    b64_html = html_content.encode('utf-8')
+                    # row format: Timestamp, Prenom, Nom, Email, IP_Address, Score, Dataset_Q4, Dataset_Q6_CatB, Q1a, Q1b, Q1c, Q2, Q3, Q4_med, Q4_mean, Q5, Q6, Q7, Q8, Q9, HTML
+                    row_data = [
+                        timestamp, prenom, nom, email, ip_address, f"{score}/{max_score}",
+                        dataset_q4_str, salaries_B_str, # Store the specific random questions
+                        q1_a, q1_b, q1_c, q2, q3,
+                        float(q4_median), float(q4_mean), float(q5_variance), float(q6_mean_catB),
+                        q7, q8, q9, html_content
+                    ]
+                    
+                    worksheet.append_row(row_data)
+                    
                     st.session_state['quiz_submitted'] = True
-                    st.session_state['download_data'] = b64_html
-                    st.session_state['download_filename'] = f"Correction_{nom}_{prenom}.html"
-                    st.session_state['success_msg'] = f"✅ Ouf ! Vos réponses ont été bien enregistrées. Note : {score}/{max_score}"
+                    st.session_state['success_msg'] = "✅ Vos réponses ont été bien enregistrées. Vous pouvez maintenant fermer cette page."
                     
-                    # Upload the html_content directly to Google Drive
-                    from io import BytesIO
-                    import io
-                    
-                    # Ensure Drive API access is established
-                    drive_service = build('drive', 'v3', credentials=credentials)
-                    
-                    file_metadata = {
-                        'name': f"Correction_{nom}_{prenom}_{timestamp}.html",
-                        'parents': ['1JR9EPNbOKyQ4F8WEoJ-G97I2Y1WKj4G0'] # target folder provided by user
-                    }
-                    
-                    # Upload in-memory bytes
-                    fh = io.BytesIO(b64_html)
-                    media = MediaIoBaseUpload(fh, mimetype='text/html', resumable=True)
-                    
-                    try:
-                        file = drive_service.files().create(
-                            body=file_metadata,
-                            media_body=media,
-                            fields='id',
-                            supportsAllDrives=True
-                        ).execute()
-                        st.session_state['drive_msg'] = f"Une copie a également été enregistrée automatiquement de manière sécurisée (ID: {file.get('id')})."
-                    except Exception as e:
-                        if "storageQuotaExceeded" in str(e):
-                            st.session_state['drive_msg'] = "⚠️ Le fichier HTML n'a pas pu être uploadé sur Google Drive car le Service Account n'a pas de quota de stockage. Solution : Pensez à convertir ce dossier en \"Drive Partagé\" (Shared Drive) dans vos paramètres Workspace."
-                        else:
-                            raise e
-
                 except Exception as e:
                     st.error(f"Une erreur s'est produite lors de l'enregistrement. Détails pour le professeur: {e}")
 
 if st.session_state.get('quiz_submitted', False):
     st.success(st.session_state.get('success_msg', '✅ Enregistré !'))
-    if 'drive_msg' in st.session_state:
-        st.info(st.session_state['drive_msg'])
-    st.download_button(
-        label="📄 Télécharger votre copie et la correction",
-        data=st.session_state.get('download_data', b''),
-        file_name=st.session_state.get('download_filename', 'correction.html'),
-        mime="text/html",
-        type="primary"
-    )
+    st.info("Vos réponses et votre énoncé unique ont bien été enregistrés sur le serveur. Vous pouvez fermer cette page.")
