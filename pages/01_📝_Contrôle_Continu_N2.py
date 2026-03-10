@@ -5,14 +5,16 @@ from datetime import datetime
 import pandas as pd
 import numpy as np
 
-st.set_page_config(page_title="Quiz S3 à S5", page_icon="📝", layout="wide")
+st.set_page_config(page_title="Contrôle Continu N°2", page_icon="📝", layout="wide", initial_sidebar_state="expanded")
 
-st.title("📝 Évaluation : Séances 3 à 5")
+st.title("📝 Contrôle Continu N°2")
 st.markdown("""
 **Durée estimée : 30 minutes**
 
 Veuillez répondre à toutes les questions avant de soumettre. Une fois soumis, vos réponses seront enregistrées définitivement.
 """)
+
+st.warning("⚠️ **ATTENTION :** Seule votre **première** soumission sera prise en compte pour la notation globale. Les soumissions supplémentaires seront ignorées.", icon="🚨")
 
 # 1. Setup connection securely
 scopes = [
@@ -63,15 +65,37 @@ def string_to_seed(s):
 # Step 1: Identification to lock the seed
 if 'identified' not in st.session_state:
     st.header("Étape 1 : Identification")
-    st.info("Veuillez saisir votre adresse email Sciences Po pour générer votre sujet d'examen unique.")
-    email_input = st.text_input("Adresse e-mail (Sciences Po)")
-    if st.button("Commencer l'examen"):
-        if email_input and "@" in email_input:
-            st.session_state['identified'] = True
-            st.session_state['email_student'] = email_input.strip()
-            st.rerun()
-        else:
-            st.error("Veuillez entrer une adresse e-mail valide.")
+    st.info("Veuillez sélectionner votre groupe puis votre nom.")
+    
+    if "students" in st.secrets:
+        student_dict = st.secrets["students"]
+        
+        # Unique groups extraction
+        groups = sorted(list(set(v.get("groupe", "Inconnu") for v in student_dict.values())))
+        
+        selected_group = st.selectbox("Sélectionnez votre groupe", options=["Sélectionner..."] + groups)
+        
+        if selected_group != "Sélectionner...":
+            # Filter students by group
+            filtered_students = {k: v for k, v in student_dict.items() if v.get("groupe") == selected_group}
+            display_options = ["Sélectionner..."] + sorted([f"{v['prenom']} {v['nom']} ({k})" for k, v in filtered_students.items()])
+            
+            selected = st.selectbox("Sélectionnez votre profil", options=display_options)
+            
+            if st.button("Commencer l'examen"):
+                if selected != "Sélectionner...":
+                    email_input = selected.split("(")[-1].replace(")", "").strip()
+                    st.session_state['identified'] = True
+                    st.session_state['email_student'] = email_input
+                    st.session_state['prenom_student'] = student_dict[email_input]['prenom']
+                    st.session_state['nom_student'] = student_dict[email_input]['nom']
+                    st.session_state['groupe_student'] = selected_group
+                    st.rerun()
+                else:
+                    st.error("Veuillez sélectionner votre nom.")
+    else:
+        st.error("Erreur de configuration : la liste des étudiants est introuvable dans les secrets.")
+        
     st.stop() # Halt rendering until identified
 
 # Once identified, seed numpy and generate dataset
@@ -109,14 +133,17 @@ correct_q5_mean_prive = sum(salaries_prive) / len(salaries_prive)
 
 with st.form("quiz_form"):
     st.header("Informations de l'étudiant")
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns([2, 2, 1])
     with col1:
-        prenom = st.text_input("Prénom", key="prenom")
+        prenom = st.text_input("Prénom", value=st.session_state.get('prenom_student', ''), disabled=True)
     with col2:
-        nom = st.text_input("Nom", key="nom")
+        nom = st.text_input("Nom", value=st.session_state.get('nom_student', ''), disabled=True)
+    with col3:
+        groupe = st.text_input("Groupe", value=st.session_state.get('groupe_student', '17h'), disabled=True)
     st.text_input("Adresse e-mail", value=email, disabled=True)
     
-    st.sidebar.markdown(f"**🟢 Étudiant connecté :**\n*{email}*")
+    st.sidebar.markdown("### 🟢 Étudiant connecté :")
+    st.sidebar.info(f"**{prenom} {nom}**\n\n*(Groupe {groupe})*")
     st.divider()
     
     # --- PART 1 ---
@@ -250,6 +277,8 @@ with st.form("quiz_form"):
 
     st.markdown("<br>", unsafe_allow_html=True)
     
+    st.warning("Assurez-vous d'avoir bien relu toutes vos réponses. Toute soumission est définitive et **seul le premier envoi sera validé et noté**.", icon="⚠️")
+    
     submitted = st.form_submit_button("S'assurer d'avoir tout rempli, puis Soumettre ! 🚀", use_container_width=True)
 
     if submitted:
@@ -315,7 +344,10 @@ with st.form("quiz_form"):
                     if q7_ok: score += 1.5
                     if q8_ok: score += 1.5
                     
-
+                    score_p1 = sum([1 if q1a_ok else 0, 1 if q1b_ok else 0, 1 if q1c_ok else 0, 2 if q2_ok else 0])
+                    score_p2 = sum([1 if q3_med_ok else 0, 1 if q3_mean_ok else 0, 2 if q4_var_ok else 0, 2 if q4_std_ok else 0])
+                    score_p3 = sum([1 if q5_public_ok else 0, 1 if q5_prive_ok else 0, 2 if q5b_ok else 0, 2 if q6_ok else 0, 1.5 if q7_ok else 0, 1.5 if q8_ok else 0])
+                    
                     # Google Sheets Save
                     sheet_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
                     spreadsheet = client.open_by_url(sheet_url)
@@ -332,7 +364,7 @@ with st.form("quiz_form"):
                     
                     # Helper for HTML formatting
                     def fmt_ans(ans, is_correct):
-                        cls = "ans-right" if is_correct else "ans-wrong"
+                        cls = "correct" if is_correct else "incorrect"
                         return f'<span class="{cls}">{ans}</span>'
                     
                     # Generate HTML response summary for Download
@@ -346,11 +378,19 @@ with st.form("quiz_form"):
                             .correction {{ color: blue; font-weight: bold; margin-left: 10px; }}
                             h3 {{ border-bottom: 1px solid #ccc; padding-bottom: 5px; }}
                             p {{ margin-bottom: 15px; background: #f9f9f9; padding: 10px; border-radius: 5px; }}
+                            .score-box {{ border: 2px solid #2ecc71; background-color: #eafaf1; padding: 15px; margin-bottom: 20px; text-align: center; border-radius: 8px; font-size: 1.2em; }}
+                            .score-title {{ font-weight: bold; color: #27ae60; margin-bottom: 5px; }}
                         </style>
                     </head>
                     <body>
                         <h2>Receipt de Soumission : {prenom} {nom}</h2>
-                        <h3>Partie 1 : Fondations des données et Échantillonnage</h3>
+                        
+                        <div class="score-box">
+                            <div class="score-title">Score Final</div>
+                            <strong>{score} / {max_score}</strong>
+                        </div>
+                        
+                        <h3>Partie 1 : Fondations des données et Échantillonnage ({score_p1}/5)</h3>
                         <p><strong>[Q1] Associez les situations suivantes à leur type de source de données correct ({sum([1 if q1a_ok else 0, 1 if q1b_ok else 0, 1 if q1c_ok else 0])}/3):</strong><br>
                         - <em>Les registres d'état civil :</em> {fmt_ans(q1_a, q1a_ok)} <br>Correction : <span class="correction">Données Administratives</span><br>
                         - <em>Les réponses à un sondage :</em> {fmt_ans(q1_b, q1b_ok)} <br>Correction : <span class="correction">Données d'Enquête</span><br>
@@ -359,7 +399,7 @@ with st.form("quiz_form"):
                         <p><strong>[Q2] Échantillonnage représentatif pour enquête universitaire à coûts maîtrisés ({"2/2" if q2_ok else "0/2"}) :</strong><br> 
                         Réponse de l'étudiant : {fmt_ans(q2, q2_ok)} <br>Correction : <span class="correction">Échantillonnage stratifié en fonction du cycle d'études</span></p>
 
-                        <h3>Partie 2 : Statistiques Descriptives Univariées</h3>
+                        <h3>Partie 2 : Statistiques Descriptives Univariées ({score_p2}/6)</h3>
                         <p><strong>Dataset (âges) :</strong> <code>{dataset_q4_str}</code></p>
                         
                         <p><strong>[Q3] Calculez la Médiane ({"1/1" if q3_med_ok else "0/1"}) :</strong><br> 
@@ -374,7 +414,7 @@ with st.form("quiz_form"):
                         <p><strong>Calculez l'Écart-type ({"2/2" if q4_std_ok else "0/2"}) :</strong><br> 
                         Réponse de l'étudiant : {fmt_ans(q4_std, q4_std_ok)} <br>Correction : <span class="correction">~{correct_q5_std:.2f}</span></p>
 
-                        <h3>Partie 3 : Analyse Bivariée</h3>
+                        <h3>Partie 3 : Analyse Bivariée ({score_p3}/9)</h3>
                         <p><strong>Salaires Secteur Public :</strong> <code>{salaries_public_str}</code> | <strong>Secteur Privé :</strong> <code>{salaries_prive_str}</code></p>
                         
                         <p><strong>[Q5a] Moyenne Secteur Public ({"1/1" if q5_public_ok else "0/1"}) :</strong><br> 
@@ -402,9 +442,9 @@ with st.form("quiz_form"):
                     # Minify the HTML significantly so it fits cleanly into a single Google Sheets cell without massive row height
                     minified_html = html_content.replace('\n', '').replace('    ', ' ')
                     
-                    # row format: Timestamp, Prenom, Nom, Email, IP_Address, Score, Dataset_Q4, Dataset_Q5_Public, Dataset_Q5_Prive, Q1a, Q1b, Q1c, Q2, Q3_med, Q3_mean, Q4_var, Q4_std, Q5_Public, Q5_Prive, Q5b, Q6, Q7, Q8, HTML
+                    # row format: Timestamp, Prenom, Nom, Email, Groupe, IP_Address, Score, Dataset_Q4, Dataset_Q5_Public, Dataset_Q5_Prive, Q1a, Q1b, Q1c, Q2, Q3_med, Q3_mean, Q4_var, Q4_std, Q5_Public, Q5_Prive, Q5b, Q6, Q7, Q8, HTML
                     row_data = [
-                        timestamp, prenom, nom, email, ip_address, f"{score}/{max_score}",
+                        timestamp, prenom, nom, email, groupe, ip_address, f"{score}/{max_score}",
                         dataset_q4_str, salaries_public_str, salaries_prive_str, # Store the specific random questions
                         q1_a, q1_b, q1_c, q2,
                         float(q3_median), float(q3_mean), float(q4_variance), float(q4_std), float(q5_mean_public), float(q5_mean_prive),

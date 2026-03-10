@@ -5,7 +5,7 @@ st.set_page_config(
     page_icon="🏫"
 )
 
-st.title("🏫 Evaluation - Méthodes Quantitatives")
+st.title("🏫 Contrôle Continu N°2 - Méthodes Quantitatives")
 st.subheader("Plateforme d'évaluation du cours")
 
 st.markdown("""

@@ -5,3 +5,10 @@ venv/
 # Local secrets file 
 .streamlit/secrets.toml
 client_secret.json
+
+# Student lists
+studentlist/
+# Local generated secrets
+new_secrets.toml
+generate_secrets.py
+inject_secrets.py
