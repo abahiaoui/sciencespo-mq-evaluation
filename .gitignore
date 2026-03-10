@@ -12,3 +12,6 @@ studentlist/
 new_secrets.toml
 generate_secrets.py
 inject_secrets.py
+
+student_receipts/
+email_receipts.py
